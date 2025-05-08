@@ -1,38 +1,43 @@
-# MySQL on KubeBlocks
+# Redis on KubeBlocks
 
-## Overview
-
-MySQL is one of the most popular open-source relational database management systems (RDBMS). It is widely used for web applications and acts as the database component of the LAMP (Linux, Apache, MySQL, PHP/Python/Perl) stack. Developed by Oracle Corporation, MySQL is known for its speed, reliability, and ease of use. It supports a wide range of platforms, including Linux, Windows, macOS, and various Unix variants.
+Redis is an open source (BSD licensed), in-memory data structure store, used as a database, cache and message broker.
 
 ## Features in KubeBlocks
+
+### Supported Topologies
+
+| Topology      | Data Distribution | Scalability | High Availability | Use Cases                     |
+|---------------|-------------------|-------------|--------------------|-------------------------------|
+| **Standalone**| Single node       | No          | No                 | Development/testing, small datasets |
+| **Replication** with sentinel     | Primary-Secondary replication | Read scaling | Yes | Read-heavy workloads, data redundancy needed |
+| **Cluster**   | Sharded storage   | Read/write scaling | Yes | Large datasets, high-concurrency production environments |
 
 ### Cluster Management Operations
 
 | Operation |Supported | Description |
 |-----------|-------------|----------------------|
-| **Restart** | YES | • Ordered sequence (followers first)<br/>• Health checks between restarts |
-| **Stop/Start** | YES |  • Graceful shutdown<br/>• Fast startup from persisted state |
-| **Horizontal Scaling** |YES |  • Adjust replica count dynamically<br/>• Automatic data replication<br/> |
-| **Vertical Scaling** | YES |  • Adjust CPU/Memory resources<br/>• Rolling updates for minimal downtime<br/>• Adaptive Parameters Reconfiguration, such as buffer pool size/max connections |
-| **Volume Expansion** | YES |  • Online storage expansion<br/>• No downtime required |
-| **Reconfiguration** | YES | • Dynamic/Static parameter updates<br/>• Validation rules<br/>• Versioned history |
-| **Service Exposure** | YES |  • Multiple exposure types (ClusterIP/NodePort/LB)<br/>• Role-based routing |
-| **Switchover** | YES |  • Planned primary transfer<br/>• Zero data loss guarantee |
+| **Restart** |• Standalone<br/>• Replication<br/>• Cluster  | • Ordered sequence (followers first)<br/>• Health checks between restarts |
+| **Stop/Start** |• Standalone<br/>• Replication<br/>• Cluster       |  • Graceful shutdown<br/>• Fast startup from persisted state |
+| **Horizontal Scaling** |• Replication<br/>• Cluster |  • Adjust replica count dynamically<br/>• Automatic data replication<br/> |
+| **Vertical Scaling** | • Standalone<br/>• Replication<br/>• Cluster  |  • Adjust CPU/Memory resources<br/>• Rolling updates for minimal downtime |
+| **Volume Expansion** | • Standalone<br/>• Replication<br/>• Cluster  |  • Online storage expansion<br/>• No downtime required |
+| **Reconfiguration** | • Standalone<br/>• Replication<br/>• Cluster  | • Dynamic/Static parameter updates<br/>• Validation rules<br/>• Versioned history |
+| **Service Exposure** | • Standalone<br/>• Replication<br/>• Cluster  |  • Multiple exposure types (ClusterIP/NodePort/LB)<br/>• Role-based routing |
+| **Switchover** | • Replication<br/>• Cluster       |  • Planned primary transfer<br/>• Zero data loss guarantee |
 
-### Data Protection
+### Backup and Restore
 
-| Type       | Method     | Details |
-|---------------|------------|---------|
-| Full Backup   | xtrabackup | • using Percona XtraBackup to perform a full backup <br/>• Upload backup file using `datasafed push`
-| Continuous Backup | archive-binlog | • Flushes binlogs when needed (size or time thresholds) <br/> • Upload binlogs using `wal-g binlog-push` <br/> • Purges expired binlogs |
+| Feature           | Method          | Description |
+|-------------|--------|------------|
+| Full Backup | datafile  | uses `redis-cli BGSAVE` command to backup data |
+| Continuous Backup | aof | continuously perform incremental backups by archiving Append-Only Files (AOF) |
 
-### Supported Versions
+### Versions
 
-| Major Versions | Minor Versions| Description |
-|---------------|--------------|-------------|
-| 5.7 | 5.7.44  | EOL since Oct 2023 |
-| 8.0 | \[8.0.30 ~ 8.0.39\] |LTS|
-| 8.4 | 8.4.0 ~ 8.4.2| LTS |
+| Major Versions | Description |
+|---------------|-------------|
+| 7.0           | 7.0.6 |
+| 7.2           | 7.2.4, 7.2.7 |
 
 ## Prerequisites
 
@@ -45,7 +50,7 @@ Before starting, ensure you have:
 
 2. **KubeBlocks Setup**:
    - KubeBlocks installed and running ([Installation](../docs/prerequisites.md))
-   - MySQL Addon enabled ([Addon Setup](../docs/install-addon.md))
+   - Redis Addon enabled ([Addon Setup](../docs/install-addon.md))
 
 3. **Namespace Setup**:
    Create an isolated namespace for this tutorial:
@@ -60,41 +65,45 @@ Before starting, ensure you have:
 
 #### Quick Start
 
-To deploy a basic MySQL replication cluster:
+To deploy a basic Redis replication cluster with two components, one for Redis, and one for Redis Sentinel[^1].
+
+> [!NOTE]
+> For optimal reliability, you should run at least **three** Redis Sentinel replicas.
+> Having three or more Sentinels ensures a quorum can be reached during failover decisions, maintaining the high availability of your Redis deployment.
 
 ```bash
-kubectl apply -f examples/mysql/cluster.yaml
+kubectl apply -f examples/redis/cluster.yaml
 ```
 
-And you will see the MySQL cluster status goes `Running` after a while:
+And you will see the Redis cluster status goes `Running` after a while:
 
 ```bash
-kubectl get cluster mysql-cluster -w -n demo
+kubectl get cluster redis-replication -w -n demo
 ```
 
 <details open>
 <summary>Expected Output</summary>
 
 ```bash
-NAME              CLUSTER-DEFINITION   TERMINATION-POLICY   STATUS    AGE
-mysql-cluster                          Delete               Running   1m
+NAME                CLUSTER-DEFINITION   TERMINATION-POLICY   STATUS    AGE
+redis-replication   redis                Delete               Running   2m36s
 ```
 
 </details>
 
-and these two replicas are `Running` with roles `primary`,  `secondary` separately. To check the roles of the replicas, you can use following command:
+and two Redis replicas are `Running` with roles `primary`,  `secondary` separately. To check the roles of the replicas, you can use following command:
 
 ```bash
-kubectl get po -l  app.kubernetes.io/instance=mysql-cluster -L kubeblocks.io/role -n demo
+kubectl get po -l  app.kubernetes.io/instance=redis-replication,apps.kubeblocks.io/component-name=redis -L kubeblocks.io/role -n demo
 ```
 
 <details open>
 <summary>Expected Output</summary>
 
 ```bash
-NAME                      READY   STATUS    RESTARTS   AGE   ROLE
-mysql-cluster-mysql-0     4/4     Running   0          99s   primary
-mysql-cluster-mysql-1     4/4     Running   0          85s   secondary
+NAME                        READY   STATUS    RESTARTS   AGE     ROLE
+redis-replication-redis-0   3/3     Running   0          4m36s   primary
+redis-replication-redis-1   3/3     Running   0          4m13s   secondary
 ```
 
 </details>
@@ -109,35 +118,44 @@ apiVersion: apps.kubeblocks.io/v1
 kind: Cluster
 spec:
   componentSpecs:
-    - name: mysql
+    - name: redis
       # ServiceVersion specifies the version of the Service expected to be
       # provisioned by this Component.
-      serviceVersion: "8.0.35" # more MySQL versions will be supported in the future
+      serviceVersion: "7.2.7" # more Redis versions will be supported in the future
 ```
 
 The list of supported versions can be found by following command:
 
 ```bash
-kubectl get cmpv mysql
+kubectl get cmpv redis
 ```
 
 <details open>
 <summary>Expected Output</summary>
 
 ```bash
-NAME    VERSIONS                                                                                         STATUS      AGE
-mysql   8.4.2,8.4.1,8.4.0,8.0.39,8.0.38,8.0.37,8.0.36,8.0.35,8.0.34,8.0.33,8.0.32,8.0.31,8.0.30,5.7.44   Available   5d
+NAME    VERSIONS            STATUS      AGE
+redis   7.2.7,7.2.4,7.0.6   Available   5d
 ```
 
 </details>
 
 ### Cluster Restart
 
-Restart the cluster components with zero downtime:
+Restart Redis component only,
 
 ```bash
-kubectl apply -f examples/mysql/restart.yaml
+kubectl apply -f examples/redis/restart.yaml
 ```
+
+This operation restart only one component (Redis), as specifed in
+
+```yaml
+  restart:
+  - componentName: redis
+```
+
+You may list more components as needed.
 
 This operation can only be performed via `OpsRequest`, and there is no corresponding CLUSTER API operation - because restart is not a declaration but an action.
 
@@ -158,7 +176,7 @@ Gracefully stop the cluster to conserve resources while retaining all data (PVC)
 **Stop via OpsRequest**
 
 ```bash
-kubectl apply -f examples/mysql/stop.yaml
+kubectl apply -f examples/redis/stop.yaml
 ```
 
 > [!NOTE]
@@ -177,9 +195,12 @@ apiVersion: apps.kubeblocks.io/v1
 kind: Cluster
 spec:
   componentSpecs:
-    - name: mysql
+    - name: redis
       stop: true  # Set to true to stop the component
       replicas: 2
+    - name: redis-sentinel
+      stop: true  # Set to true to stop the component
+      replicas: 3
 ```
 
 #### Starting the Cluster
@@ -189,7 +210,7 @@ Start the cluster from its stopped state:
 **Start via OpsRequest**
 
 ```bash
-kubectl apply -f examples/mysql/start.yaml
+kubectl apply -f examples/redis/start.yaml
 ```
 
 **Start via Cluster API**
@@ -201,9 +222,12 @@ apiVersion: apps.kubeblocks.io/v1
 kind: Cluster
 spec:
   componentSpecs:
-    - name: mysql
+    - name: redis
       stop: false  # Set to false to start the component or remove the field (default to false)
       replicas: 2
+    - name: redis-sentinel
+      stop: false  # Set to false to start the component or remove the field (default to false)
+      replicas: 3
 ```
 
 ## Scaling Operations
@@ -215,13 +239,13 @@ spec:
 Add a new replica to the cluster:
 
 ```bash
-kubectl apply -f examples/mysql/scale-out.yaml
+kubectl apply -f examples/redis/scale-out.yaml
 ```
 
 To Check detailed operation status
 
 ```bash
-kubectl describe ops -n demo mysql-scale-out
+kubectl describe ops -n demo redis-scale-out
 ```
 
 **Expected Workflow**:
@@ -240,7 +264,7 @@ kubectl describe ops -n demo mysql-scale-out
 To verify the new replica's status:
 
 ```bash
-kubectl get pods -n demo -l app.kubernetes.io/instance=mysql-cluster -L kubeblocks.io/role
+kubectl get pods -n demo -l app.kubernetes.io/instance=redis-replication -L kubeblocks.io/role
 ```
 
 ### Scale In Operation
@@ -253,13 +277,13 @@ kubectl get pods -n demo -l app.kubernetes.io/instance=mysql-cluster -L kubebloc
 Remove a replica from the cluster:
 
 ```bash
-kubectl apply -f examples/mysql/scale-in.yaml
+kubectl apply -f examples/redis/scale-in.yaml
 ```
 
 Check detailed operation status:
 
 ```bash
-kubectl describe ops -n demo mysql-scale-in
+kubectl describe ops -n demo redis-scale-in
 ```
 
 **Expected Workflow**:
@@ -271,7 +295,7 @@ kubectl describe ops -n demo mysql-scale-in
 **Verification**:
 
 ```bash
-kubectl get pods -n demo -l app.kubernetes.io/instance=mysql-cluster
+kubectl get pods -n demo -l app.kubernetes.io/instance=redis-replication
 ```
 
 #### Targeted Instance Scale In
@@ -279,13 +303,13 @@ kubectl get pods -n demo -l app.kubernetes.io/instance=mysql-cluster
 For cases where you need to take a specific problematic replica offline for maintenance:
 
 ```bash
-kubectl apply -f examples/mysql/scale-in-specified-pod.yaml
+kubectl apply -f examples/redis/scale-in-specified-pod.yaml
 ```
 
 Check detailed operation status:
 
 ```bash
-kubectl describe ops -n demo mysql-scale-in-specified-pod
+kubectl describe ops -n demo redis-scale-in-specified-pod
 ```
 
 **Expected Workflow**:
@@ -300,9 +324,9 @@ apiVersion: apps.kubeblocks.io/v1
 kind: Cluster
 spec:
   componentSpecs:
-    name: mysql
+    name: redis
     offlineInstances:
-      - mysql-cluster-mysql-1  # the instance name specified in opsrequest
+      - redis-replication-redis-1  # the instance name specified in opsrequest
     replicas: 1  # replicas reduced by one at the same time.
 ```
 
@@ -315,10 +339,10 @@ apiVersion: apps.kubeblocks.io/v1
 kind: Cluster
 spec:
   componentSpecs:
-    - name: mysql
+    - name: redis
       replicas: 2  # Adjust replicas for scaling in and out.
       offlineInstances:
-        - mysql-cluster-mysql-1 # for targetd-instance scale-in scenario, default to empty list.
+        - redis-replication-redis-1 # for targetd-instance scale-in scenario, default to empty list.
 ```
 
 ### Vertical Scaling
@@ -331,10 +355,10 @@ Resources that can be scaled include:
 
 #### Vertical Scaling via OpsRequest API
 
-Perform vertical scaling using a operation request:
+Perform vertical scaling on Reis Component using a operation request:
 
 ```bash
-kubectl apply -f examples/mysql/verticalscale.yaml
+kubectl apply -f examples/redis/verticalscale.yaml
 ```
 
 **Expected Workflow**:
@@ -353,7 +377,7 @@ apiVersion: apps.kubeblocks.io/v1
 kind: Cluster
 spec:
   componentSpecs:
-    - name: mysql
+    - name: redis
       resources:
         requests:
           cpu: "1"       # CPU cores (e.g. "1", "500m")
@@ -375,49 +399,36 @@ spec:
 
 A database reconfiguration is the process of modifying database parameters, settings, or configurations to improve performance, security, or availability.
 
-| Type | Restart Required | Scope | Example Parameters |
-|------|------------------|-------|--------------------|
-| **Dynamic** | No | Immediate effect | `max_connections`, `innodb_buffer_pool_size` |
-| **Static** | Yes | After restart | `performance_schema`, `log_bin` |
+| Type | Restart Required | Scope |
+|------|------------------|-------|
+| **Dynamic** | No | Immediate effect |
+| **Static** | Yes | After restart |
+
+> [!IMPORTANT]
+> So far, Redis Addons does not implemenet any dyanmic reload action for `Dynamci Parameters`, thus changes on any parameters will cause a restart.
 
 ### Reconfiguration
 
-1. **Prepare Configuration**:
-
-```yaml
-apiVersion: apps.kubeblocks.io/v1alpha1
-kind: OpsRequest
-spec:
-  clusterRef: mysql-cluster
-  type: Reconfig
-  reconfig:
-    componentName: mysql
-    configurations:
-    - name: mysql-config
-      parameters:
-        max_connections: "600"
-        innodb_buffer_pool_size: "512M"
-```
-
-2. **Apply Changes**:
+1. **Apply Changes**:
 
 ```bash
-kubectl apply -f examples/mysql/configure.yaml
+kubectl apply -f examples/redis/reconfigure-aof.yaml
 ```
 
-3. **Monitor Progress**:
+2. **Monitor Progress**:
 
 ```bash
-kubectl describe ops mysql-reconfiguring -n demo  # check opsrequest progress
-kubectl describe parameter mysql-reconfiguring -n demo  # check parameters reconfigurion details
+kubectl describe ops redis-reconfiguring -n demo  # check opsrequest progress
+kubectl describe parameter redis-reconfiguring -n demo  # check parameters reconfigurion details
 ```
 
-4. **Verify Changes**:
+3. **Verify Changes**:
 
 ```sql
--- On primary replica
-SHOW VARIABLES LIKE 'max_connections';
-SHOW VARIABLES LIKE 'innodb_buffer_pool_size';
+-- login to redis and check configs
+127.0.0.1:6379> CONFIG GET aof-timestamp-enabled
+1) "aof-timestamp-enabled"
+2) "yes"
 ```
 
 > [!IMPORTANT]
@@ -425,56 +436,12 @@ SHOW VARIABLES LIKE 'innodb_buffer_pool_size';
 > - Static changes trigger rolling restarts
 > - Monitor cluster health during reconfiguration
 
-<details open>
-
-<summary>How to find the list of dynamic/static parameters</summary>
-
-Behavior of Parameters, including parameters scope such as dynamic/static/immutable, or parameters validation rules such as value types, ranges of values, are defined in KubeBlocks `ParameterDefinition`.
-
-You may fetch the list of dynamic parameters for MySQL using:
+4. **Trouble Shooting**
 
 ```bash
-kubectl get pd mysql-8.0-pd -oyaml | yq '.spec.staticParameters'
-kubectl get pd mysql-8.0-pd -oyaml | yq '.spec.dynamicParameters'
+kubectl describe ops redis-reconfiguring -n demo  # check opsrequest progress
+kubectl describe parameter redis-reconfiguring -n demo  # check parameters reconfigurion details
 ```
-
-</details>
-
-5. **Trouble Shooting**
-
-```bash
-kubectl describe ops mysql-reconfiguring -n demo  # check opsrequest progress
-kubectl describe parameter mysql-reconfiguring -n demo  # check parameters reconfigurion details
-kubectl -n demo logs mysql-cluster-mysql-0 -c config-manager # check reconfig process errors if any
-```
-
-### Configuration Validation
-
-KubeBlocks will validate the parameter values and types before applying changes.
-
-For example, `max_connections` in mysql should obey this rule:
-
-```
-// The number of simultaneous client connections allowed. should be a integer, btw [1, 100000]
-max_connections?: int & >=1 & <=100000
-```
-
-And if you somehow give a string to this value like:
-
-```yaml
-apiVersion: operations.kubeblocks.io/v1alpha1
-kind: OpsRequest
-spec:
-  type: Reconfiguring
-  clusterName: mysql-cluster
-  reconfigures:
-  - componentName: mysql
-    parameters:
-    - key: max_connections
-      value: 'abc'
-```
-
-This OpsRequest fails fast with message `failed to validate updated config: [failed to parse field max_connections: [strconv.Atoi: parsing "STRING": invalid syntax]]`
 
 ## High Availability
 
@@ -490,10 +457,10 @@ SwitchOver is a controlled operation that safely transfers leadership while main
 <summary>Developer: Switchover Actions</summary>
 KubeBlocks executes SwitchOver actions defined in `componentdefinition.spec.lifecycleActions.switchover`.
 
-To get the SwitchOver actions for MySQL:
+To get the SwitchOver actions for Redis:
 
 ```bash
-kubectl get cmpd mysql-8.0-1.0.0-alpha.0 -oyaml | yq '.spec.lifecycleActions.switchover'
+kubectl get cmpd redis-7-1.0.0-alpha.0 -oyaml | yq '.spec.lifecycleActions.switchover'
 ```
 
 </details>
@@ -508,13 +475,13 @@ kubectl get cmpd mysql-8.0-1.0.0-alpha.0 -oyaml | yq '.spec.lifecycleActions.swi
 1. **Automatic Switchover** (No preferred candidate):
 
    ```bash
-   kubectl apply -f examples/mysql/switchover.yaml
+   kubectl apply -f examples/redis/switchover.yaml
    ```
 
 2. **Targeted Switchover** (Specific instance):
 
    ```bash
-   kubectl apply -f examples/mysql/switchover-specified-instance.yaml
+   kubectl apply -f examples/redis/switchover-specified-instance.yaml
    ```
 
    Update `opsrequest.spec.switchover.candidateName` as needed
@@ -540,7 +507,7 @@ kubectl get cmpd mysql-8.0-1.0.0-alpha.0 -oyaml | yq '.spec.lifecycleActions.swi
 
   ```bash
   kubectl logs -n demo <pod-name> -c kbagent # check on primary replica
-  kubectl get events -n demo --field-selector involvedObject.name=mysql-cluster
+  kubectl get events -n demo --field-selector involvedObject.name=redis-replication
   ```
 
 ## Storage Operations
@@ -567,13 +534,13 @@ If the `ALLOWVOLUMEEXPANSION` column is `true`, the storage class supports volum
 To increase size of volume storage with the specified components in the cluster
 
 ```bash
-kubectl apply -f examples/mysql/volumeexpand.yaml
+kubectl apply -f examples/redis/volumeexpand.yaml
 ```
 
 After the operation, you will see the volume size of the specified component is increased to `30Gi` in this case. Once you've done the change, check the `status.conditions` field of the PVC to see if the resize has completed.
 
 ```bash
-kubectl get pvc -l app.kubernetes.io/instance=mysql-cluster -n demo
+kubectl get pvc -l app.kubernetes.io/instance=redis-replication -n demo
 ```
 
 #### Volume Expansion via Cluster API
@@ -586,7 +553,7 @@ apiVersion: apps.kubeblocks.io/v1
 kind: Cluster
 spec:
   componentSpecs:
-    - name: mysql
+    - name: redis
       volumeClaimTemplates:
         - name: data
           spec:
@@ -618,13 +585,13 @@ spec:
 - Enable Service
 
 ```bash
-kubectl apply -f examples/mysql/expose-enable.yaml
+kubectl apply -f examples/redis/expose-enable.yaml
 ```
 
 - Disable Service
 
 ```bash
-kubectl apply -f examples/mysql/expose-disable.yaml
+kubectl apply -f examples/redis/expose-disable.yaml
 ```
 
 #### Expose SVC via Cluster API
@@ -640,17 +607,17 @@ spec:
     - annotations:
         service.beta.kubernetes.io/aws-load-balancer-type: nlb  # Use Network Load Balancer
         service.beta.kubernetes.io/aws-load-balancer-internal: "true"  # or "false" for internet
-      componentSelector: mysql
-      name: mysql-vpc
-      serviceName: mysql-vpc
-      roleSelector: primary  # [primary, secondary] for MySQL
+      componentSelector: redis
+      name: redis-vpc
+      serviceName: redis-vpc
+      roleSelector: primary  # [primary, secondary] for Redis
       spec:
         ipFamilyPolicy: PreferDualStack
         ports:
-        - name: mysql
+        - name: redis
           port: 3306
           protocol: TCP
-          targetPort: mysql
+          targetPort: redis
         type: LoadBalancer  # [ClusterIP, NodePort, LoadBalancer]
 ```
 
@@ -691,13 +658,13 @@ cloud.google.com/l4-rbs: "enabled" # for internet
 1. **View default Backup Policies**:
 
    ```bash
-   kubectl get backuppolicy -n demo -l app.kubernetes.io/instance=mysql-cluster
+   kubectl get backuppolicy -n demo -l app.kubernetes.io/instance=redis-replication
    ```
 
 2. **View default BackupSchedule**:
 
    ```bash
-   kubectl get backupschedule -n demo -l app.kubernetes.io/instance=mysql-cluster
+   kubectl get backupschedule -n demo -l app.kubernetes.io/instance=redis-replication
    ```
 
 #### Full Backup: XtraBackup
@@ -707,7 +674,7 @@ using Percona XtraBackup to perform a full backup and  Upload backup file using 
 1. **On-Demand Backup**:
 
    ```bash
-   kubectl apply -f examples/mysql/backup.yaml
+   kubectl apply -f examples/redis/backup.yaml
    ```
 
 2. **Monitor Progress**:
@@ -724,7 +691,7 @@ using Percona XtraBackup to perform a full backup and  Upload backup file using 
 
 #### Continuous Backup: archive-binlog
 
-The method `archive-binlog` performs continuous backup of binlogs for mysql, usually paired with method `xtrabackup`.It key steps are:
+The method `archive-binlog` performs continuous backup of binlogs for redis, usually paired with method `xtrabackup`.It key steps are:
 
 - Flushes binlogs when needed (size or time thresholds)
 - Upload binlogs using `wal-g binlog-push`
@@ -738,7 +705,7 @@ Update `BackupSchedule` to schedule enable(`enabled`) backup methods and set the
 apiVersion: dataprotection.kubeblocks.io/v1alpha1
 kind: BackupSchedule
 spec:
-  backupPolicyName: mysql-cluster-mysql-backup-policy
+  backupPolicyName: redis-replication-redis-backup-policy
   schedules:
   - backupMethod: xtrabackup
     # ┌───────────── minute (0-59)
@@ -765,7 +732,7 @@ spec:
 
   ```bash
   kubectl describe backup <name> -n demo  # describe backup
-  kubectl get po -n demo -l app.kubernetes.io/instance=mysql-cluster,dataprotection.kubeblocks.io/backup-policy=mysql-cluster-mysql-backup-policy # get list of pods working for Backups
+  kubectl get po -n demo -l app.kubernetes.io/instance=redis-replication,dataprotection.kubeblocks.io/backup-policy=redis-replication-redis-backup-policy # get list of pods working for Backups
   kubectl logs -n demo <backup-pod> # check backup pod logs
   ```
 
@@ -790,18 +757,18 @@ spec:
 1. **Identify Backup**:
 
    ```bash
-   kubectl get backup -n demo -l dataprotection.kubeblocks.io/backup-type=Full,app.kubernetes.io/instance=mysql-cluster # get the list of full backups
+   kubectl get backup -n demo -l dataprotection.kubeblocks.io/backup-type=Full,app.kubernetes.io/instance=redis-replication # get the list of full backups
    ```
 
 2. **Prepare Credentials**:
 
    ```bash
    # Get encrypted system accounts
-    kubectl get backup <backupName> -n demo -ojson | jq -r '.metadata.annotations | ."kubeblocks.io/encrypted-system-accounts" | fromjson .mysql | tojson |gsub("\""; "\\\"")'
+    kubectl get backup <backupName> -n demo -ojson | jq -r '.metadata.annotations | ."kubeblocks.io/encrypted-system-accounts" | fromjson .redis | tojson |gsub("\""; "\\\"")'
    ```
 
 3. **Configure Restore**:
-   Update `examples/mysql/restore.yaml` with:
+   Update `examples/redis/restore.yaml` with:
    - Backup name and namespace: from step 1
    - Encrypted system accounts: from step 2
    - Target cluster configuration
@@ -809,7 +776,7 @@ spec:
 4. **Execute Restore**:
 
    ```bash
-   kubectl apply -f examples/mysql/restore.yaml
+   kubectl apply -f examples/redis/restore.yaml
    ```
 
 5. **Monitor Progress**:
@@ -830,7 +797,7 @@ spec:
 
   ```bash
   # expect EXACTLY ONE continuous backup
-  kubectl get backup -n demo -l dataprotection.kubeblocks.io/backup-type=Continuous,app.kubernetes.io/instance=mysql-cluster  # get the list of Continuous backups
+  kubectl get backup -n demo -l dataprotection.kubeblocks.io/backup-type=Continuous,app.kubernetes.io/instance=redis-replication  # get the list of Continuous backups
   ```
 
   Check `timeRange`:
@@ -850,7 +817,7 @@ spec:
 
   ```bash
   # expect one or more Full backups
-  kubectl get backup -n demo -l dataprotection.kubeblocks.io/backup-type=Full,app.kubernetes.io/instance=mysql-cluster  # get the list of Full backups
+  kubectl get backup -n demo -l dataprotection.kubeblocks.io/backup-type=Full,app.kubernetes.io/instance=redis-replication  # get the list of Full backups
   ```
 
 > [!IMPORTANT]
@@ -864,7 +831,7 @@ spec:
 
   ```bash
   # Get encrypted system accounts
-  kubectl get backup <backup-name> -n demo -ojson | jq -r '.metadata.annotations | ."kubeblocks.io/encrypted-system-accounts" | fromjson .mysql | tojson |gsub("\""; "\\\"")'
+  kubectl get backup <backup-name> -n demo -ojson | jq -r '.metadata.annotations | ."kubeblocks.io/encrypted-system-accounts" | fromjson .redis | tojson |gsub("\""; "\\\"")'
   ```
 
 3. **Configure Restore**:
@@ -877,7 +844,7 @@ spec:
 4. **Execute Restore**:
 
    ```bash
-   kubectl apply -f examples/mysql/restore-pitr.yaml
+   kubectl apply -f examples/redis/restore-pitr.yaml
    ```
 
 5. **Monitor Progress**:
@@ -906,7 +873,7 @@ spec:
    - Grafana admin privileges (for dashboard import)
 
 3. **Cluster created with Exporter enabled**
-    - create a MySQL Cluster with exporter running as sidecar (`disableExporter: false`)
+    - create a Redis Cluster with exporter running as sidecar (`disableExporter: false`)
     - Skip if already created
 
 ### Metrics Collection Setup
@@ -916,7 +883,7 @@ spec:
 1. **Get Exporter Details**:
 
    ```bash
-   kubectl get po -n demo mysql-cluster-mysql-0 -oyaml | yq '.spec.containers[] | select(.name=="mysql-exporter") | .ports'
+   kubectl get po -n demo redis-replication-redis-0 -oyaml | yq '.spec.containers[] | select(.name=="redis-exporter") | .ports'
    ```
 
   <details open>
@@ -933,20 +900,20 @@ spec:
 2. **Verify Metrics Endpoint**:
 
    ```bash
-   kubectl -n demo exec -it pods/mysql-cluster-mysql-0 -- \
+   kubectl -n demo exec -it pods/redis-replication-redis-0 -- \
      curl -s http://127.0.0.1:9104/metrics | head -n 50
    ```
 
 3. **Apply PodMonitor**:
 
    ```bash
-   kubectl apply -f examples/mysql/pod-monitor.yaml
+   kubectl apply -f examples/redis/pod-monitor.yaml
    ```
 
 #### 2. Grafana Dashboard Setup
 
 1. **Import Dashboard**:
-   - URL: [MySQL Dashboard](https://raw.githubusercontent.com/apecloud/kubeblocks-addons/refs/heads/main/addons/mysql/dashboards/mysql.json)
+   - URL: [Redis Dashboard](https://raw.githubusercontent.com/apecloud/kubeblocks-addons/refs/heads/main/addons/redis/dashboards/redis.json)
 
 2. **Verification**:
    - Confirm metrics appear in Grafana within 2-5 minutes
@@ -973,7 +940,7 @@ To permanently delete the cluster and all associated resources:
 
 ```bash
 # Set termination policy to WipeOut (deletes all resources including PVCs)
-kubectl patch cluster -n demo mysql-cluster \
+kubectl patch cluster -n demo redis-replication \
   -p '{"spec":{"terminationPolicy":"WipeOut"}}' \
   --type="merge"
 ```
@@ -981,13 +948,13 @@ kubectl patch cluster -n demo mysql-cluster \
 2. Verify the termination policy was updated:
 
 ```bash
-kubectl get cluster -n demo mysql-cluster -o jsonpath='{.spec.terminationPolicy}'
+kubectl get cluster -n demo redis-replication -o jsonpath='{.spec.terminationPolicy}'
 ```
 
 3. Delete the cluster:
 
 ```bash
-kubectl delete cluster -n demo mysql-cluster
+kubectl delete cluster -n demo redis-replication
 ```
 
 > [!WARNING]
@@ -1016,34 +983,34 @@ kubectl explain cluster.spec.terminationPolicy
 
 ## Appendix
 
-### Connecting to MySQL
+### Connecting to Redis
 
-To connect to the MySQL cluster, you can:
+To connect to the Redis cluster, you can:
 
-- port forward the MySQL service to your local machine:
+- port forward the Redis service to your local machine:
 
 ```bash
-kubectl port-forward svc/mysql-cluster-mysql 3306:3306 -n demo
+kubectl port-forward svc/redis-replication-redis 3306:3306 -n demo
 ```
 
-- or expose the MySQL service to the internet, as mentioned in the [Networking](#networking) section.
+- or expose the Redis service to the internet, as mentioned in the [Networking](#networking) section.
 
-Then you can connect to the MySQL cluster with the following command:
+Then you can connect to the Redis cluster with the following command:
 
 ```bash
-mysql -h <endpoint> -P 3306 -u <userName> -p <userPasswd>
+redis -h <endpoint> -P 3306 -u <userName> -p <userPasswd>
 ```
 
 and credentials can be found in the `secret` resource:
 
 ```bash
-userName=$(kubectl get secret -n demo mysql-cluster-mysql-account-root -ojsonpath='{.data.username}' | base64 -d)
-userPasswd=$(kubectl get secret -n demo mysql-cluster-mysql-account-root -ojsonpath='{.data.password}' | base64 -d)
+userName=$(kubectl get secret -n demo redis-replication-redis-account-root -ojsonpath='{.data.username}' | base64 -d)
+userPasswd=$(kubectl get secret -n demo redis-replication-redis-account-root -ojsonpath='{.data.password}' | base64 -d)
 ```
 
-### Create MySQL Cluster with Orchestrator as HA manager
+### Create Redis Cluster with Orchestrator as HA manager
 
-KubeBlocks provides you an alternative to  create a MySQL cluster that uses the Orchestrator[^1] HA manager.
+KubeBlocks provides you an alternative to  create a Redis cluster that uses the Orchestrator[^1] HA manager.
 
 #### Prerequisites
 
@@ -1051,35 +1018,40 @@ KubeBlocks provides you an alternative to  create a MySQL cluster that uses the 
 - An Orchestrator cluster Created using KubeBlocks, skip if exists. If not you may use following command to create one.
 
 ```bash
-kubectl apply -f examples/mysql/orchestrator.yaml
+kubectl apply -f examples/redis/orchestrator.yaml
 ```
 
-#### Create MySQL Cluster with ServiceRef to Orchestrator
+#### Why Redis Sentinel starts before Redis
 
-1. edit `example/mysql/cluster-orc.yaml` and update `serviceRefs`.
+Redis Sentinel is a high availability solution for Redis. It provides monitoring, notifications, and automatic failover for Redis instances.
 
-```yaml
-serviceRefs:
-  - name: orchestrator
-    namespace: <ORC_CLUSTER_NAMESPACE> # set to your orchestrator cluster namespace
-    clusterServiceSelector:
-      cluster:  <ORC_CLUSTER_NAME>  # set to your orchestrator cluster name
-      service:
-        component: orchestrator
-        service: orchestrator
-        port:  orc-http
-      credential:
-        component: orchestrator
-        name: orchestrator
-```
+Each Redis replica, from the Redis component, upon startup, will connect to the Redis Sentinel instances to get the current leader and follower information. It needs to determine:
 
-2. create an mysql cluster with two replicas, with serviceRef to Orchestrator.
+- Whether it should act as the primary (master) node.
+- If not, which node is the current primary to replicate from.
+
+In more detail, each Redis replica will:
+
+1. Check for Existing Primary Node
+    - Queries Redis Sentinel to find out if a primary node is already elected.
+    - Retrieve the primary's address and port.
+1. Initialize as Primary if Necessary
+    - If no primary is found (e.g., during initial cluster setup), it configures the current Redis instance to become the primary.
+    - Updates Redis configuration to disable replication.
+1. Configure as Replica if Primary Exists
+    - If a primary is found, it sets up the current Redis instance as a replica.
+    - Updates the Redis configuration with the `replicaof` directive pointing to the primary's address and port.
+    - Initiates replication to synchronize data from the primary.
+
+KubeBlocks ensures that Redis Sentinel starts first to provide the necessary information for the Redis replicas to initialize correctly. Such dependency is well-expressed in the KubeBlocks CRD `ClusterDefinition` ensuring the correct startup order.
+
+More details on how components for the `replication` topology are started, upgraded can be found in:
 
 ```bash
-kubectl apply -f examples/mysql/cluster-orc.yaml
+kubectl get cd redis -oyaml | yq '.spec.topologies[] | select(.name=="replication") | .orders'
 ```
 
-### List of K8s Resources created when creating an MySQL Cluster
+### List of K8s Resources created when creating an Redis Cluster
 
 To get the full list of associated resources created by KubeBlocks for given cluster:
 
@@ -1092,5 +1064,3 @@ kubectl get svc,secret,cm,pvc -l app.kubernetes.io/instance=<CLUSTER_NAME> -n de
 ```
 
 ## References
-
-[^1] Orchestrator, <https://github.com/openark/orchestrator>
