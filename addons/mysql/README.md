@@ -117,7 +117,7 @@ spec:
             # The name of the StorageClass required by the claim.
             # If not specified, the StorageClass annotated with
             # `storageclass.kubernetes.io/is-default-class=true` will be used by default
-            storageClassName: "csi-hostpath-sc"
+            storageClassName: ""
             accessModes:
               - ReadWriteOnce
             resources:
@@ -1180,7 +1180,7 @@ spec:
 
    ```bash
    # Get encrypted system accounts
-    kubectl get backup <backupName> -n demo -ojson | jq -r '.metadata.annotations | ."kubeblocks.io/encrypted-system-accounts" | fromjson .mysql | tojson |gsub("\""; "\\"")'
+    kubectl get backup <backupName> -n demo -ojson | jq -r '.metadata.annotations | ."kubeblocks.io/encrypted-system-accounts" | fromjson .mysql | tojson |gsub("\""; "\\\"")'
    ```
 
 3. **Configure Restore**:
@@ -1283,7 +1283,7 @@ spec:
 
   ```bash
   # Get encrypted system accounts
-  kubectl get backup <backup-name> -n demo -ojson | jq -r '.metadata.annotations | ."kubeblocks.io/encrypted-system-accounts" | fromjson .mysql | tojson |gsub("\""; "\\"")'
+  kubectl get backup <backup-name> -n demo -ojson | jq -r '.metadata.annotations | ."kubeblocks.io/encrypted-system-accounts" | fromjson .mysql | tojson |gsub("\""; "\\\"")'
   ```
 
 3. **Configure Restore**:
