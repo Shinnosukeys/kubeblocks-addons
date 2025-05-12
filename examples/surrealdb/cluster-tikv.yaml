@@ -1,0 +1,67 @@
+apiVersion: apps.kubeblocks.io/v1alpha1
+kind: Cluster
+metadata:
+  name: surreal-cluster
+  namespace: demo
+spec:
+  clusterDefinitionRef: surrealdb-1.0.0
+  topology: surreal-tikv
+  terminationPolicy: Delete
+  componentSpecs:
+      - name: surreal
+        serviceVersion: 2.2.1
+        env:
+          - name: SURREAL_USER
+            value: root
+          - name: SURREAL_PASS
+            value: surreal
+        replicas: 1
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+      - name: tikv
+        serviceVersion: 7.1.5
+        serviceAccountName: kb-surreal
+        replicas: 1
+        disableExporter: false
+        resources:
+          limits:
+            cpu: 2
+            memory: 2Gi
+          requests:
+            cpu: 2
+            memory: 2Gi
+        volumeClaimTemplates:
+          - name: data
+            spec:
+              # storageClassName: ""
+              accessModes:
+                - ReadWriteOnce
+              resources:
+                requests:
+                  storage: 20Gi
+      - name: pd
+        serviceAccountName: kb-surreal
+        serviceVersion: 7.1.5
+        disableExporter: false
+        replicas: 1
+        resources:
+          limits:
+            cpu: 500m
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 512Mi
+        volumeClaimTemplates:
+          - name: data
+            spec:
+              # storageClassName: ""
+              accessModes:
+                - ReadWriteOnce
+              resources:
+                requests:
+                  storage: 10Gi
